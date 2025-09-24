@@ -1,26 +1,53 @@
 {
   "version": 2,
+  "name": "notes-saas-app",
   "builds": [
     {
       "src": "backend/index.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "maxLambdaSize": "50mb",
+        "includeFiles": "backend/**"
+      }
     },
     {
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "dist"
+        "distDir": "dist",
+        "buildCommand": "npm run build"
       }
     }
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "backend/index.js"
+      "src": "/api/health",
+      "dest": "backend/index.js",
+      "methods": ["GET"],
+      "headers": {
+        "Cache-Control": "s-maxage=60"
+      }
     },
     {
-      "src": "/health",
-      "dest": "backend/index.js"
+      "src": "/api/(.*)",
+      "dest": "backend/index.js",
+      "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "headers": {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, x-auth-token"
+      }
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "frontend/dist/favicon.ico"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "frontend/dist/assets/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
     },
     {
       "src": "/(.*)",
