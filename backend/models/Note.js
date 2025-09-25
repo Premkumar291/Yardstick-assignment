@@ -14,14 +14,12 @@ const noteSchema = new mongoose.Schema({
     maxlength: [50000, 'Content cannot exceed 50,000 characters']
   },
   tenantId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Tenant',
+    type: String,
     required: true,
     index: true
   },
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String,
     required: true,
     index: true
   },
@@ -80,14 +78,11 @@ const noteSchema = new mongoose.Schema({
     },
     shareToken: {
       type: String,
-      default: null,
-      unique: true,
       sparse: true
     },
     sharedWith: [{
       userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
+        type: String
       },
       permission: {
         type: String,
@@ -116,8 +111,7 @@ const noteSchema = new mongoose.Schema({
       default: Date.now
     },
     createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+      type: String
     },
     changeDescription: String
   }],
@@ -144,8 +138,7 @@ const noteSchema = new mongoose.Schema({
     },
     viewHistory: [{
       userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
+        type: String
       },
       viewedAt: {
         type: Date,
@@ -176,8 +169,7 @@ const noteSchema = new mongoose.Schema({
     default: null
   },
   deletedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: String,
     default: null
   },
   isPinned: {
@@ -386,7 +378,6 @@ noteSchema.statics.findByTenant = function(tenantId, options = {}) {
   const skip = options.skip || 0;
   
   return this.find(query)
-    .populate('userId', 'email profile.firstName profile.lastName')
     .sort(sort)
     .limit(limit)
     .skip(skip);
@@ -405,7 +396,6 @@ noteSchema.statics.searchByTenant = function(tenantId, searchTerm, options = {})
   }
   
   return this.find(query, { score: { $meta: 'textScore' } })
-    .populate('userId', 'email profile.firstName profile.lastName')
     .sort({ score: { $meta: 'textScore' } })
     .limit(options.limit || 20);
 };
@@ -413,12 +403,12 @@ noteSchema.statics.searchByTenant = function(tenantId, searchTerm, options = {})
 // Static method to get note statistics for tenant
 noteSchema.statics.getStatsByTenant = function(tenantId, userId = null) {
   const matchStage = { 
-    tenantId: new mongoose.Types.ObjectId(tenantId),
+    tenantId: tenantId,
     isDeleted: { $ne: true }
   };
   
   if (userId) {
-    matchStage.userId = new mongoose.Types.ObjectId(userId);
+    matchStage.userId = userId;
   }
   
   return this.aggregate([

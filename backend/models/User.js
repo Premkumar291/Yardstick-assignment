@@ -16,8 +16,7 @@ const userSchema = new mongoose.Schema({
     minlength: [6, 'Password must be at least 6 characters long']
   },
   tenantId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Tenant',
+    type: String,
     required: true,
     index: true
   },
@@ -250,7 +249,7 @@ userSchema.statics.findByEmailAndTenant = function(email, tenantId) {
     email: email.toLowerCase(), 
     tenantId,
     isActive: true 
-  }).populate('tenantId', 'slug name plan isActive');
+  });
 };
 
 // Static method to find users by tenant
@@ -262,7 +261,6 @@ userSchema.statics.findByTenant = function(tenantId, options = {}) {
   }
   
   return this.find(query)
-    .populate('tenantId', 'slug name plan')
     .sort({ createdAt: -1 });
 };
 

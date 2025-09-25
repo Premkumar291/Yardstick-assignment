@@ -2,6 +2,7 @@ import express from 'express';
 import authRoutes from './auth.js';
 import notesRoutes from './notes.js';
 import tenantsRoutes from './tenants.js';
+import mockAuthRoutes from './mockAuth.js';
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ router.get('/health', (req, res) => {
 router.use('/auth', authRoutes);
 router.use('/notes', notesRoutes);
 router.use('/tenants', tenantsRoutes);
+router.use('/mock-auth', mockAuthRoutes);
 
 // 404 handler for API routes
 router.use('*', (req, res) => {

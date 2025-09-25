@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -94,7 +95,7 @@ const mockTenants = [
 ];
 
 const app = express();
-const PORT = process.env.PORT  ;
+const PORT = process.env.PORT || 5000; // Default port for development
 
 // Security middleware
 app.use(helmet({
@@ -211,6 +212,7 @@ const corsOptions = {
     'Content-Type', 
     'Authorization', 
     'x-auth-token',
+    'X-Tenant-Slug',
     'X-Requested-With',
     'Accept',
     'Origin',
@@ -227,6 +229,9 @@ app.use(cors(corsOptions));
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Cookie parsing middleware
+app.use(cookieParser());
 
 // Logging middleware
 if (process.env.NODE_ENV !== 'production') {

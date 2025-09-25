@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { User, Tenant } from '../models/index.js';
 import { generateToken, generateRefreshToken } from '../utils/jwt.js';
+import { setAuthCookies, clearAuthCookies, getMockUserWithTokens } from '../utils/mockAuth.js';
 import mongoose from 'mongoose';
 
 // Mock users for development/testing - always available
@@ -9,7 +10,7 @@ const mockUsers = {
     _id: 'mock-admin-acme',
     email: 'admin@acme.test',
     password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
-    tenantId: { _id: 'mock-tenant-acme', slug: 'acme', name: 'Acme Corporation', plan: 'free', noteLimit: 3, isActive: true },
+    tenantId: { _id: 'mock-tenant-acme', slug: 'acme', name: 'Acme Corporation', plan: 'free', noteLimit: 3, isActive: true, canCreateNotes: true, usage: { currentNoteCount: 0 } },
     role: 'admin',
     fullName: 'Admin User',
     isActive: true,
@@ -26,7 +27,7 @@ const mockUsers = {
     _id: 'mock-user-acme',
     email: 'user@acme.test',
     password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
-    tenantId: { _id: 'mock-tenant-acme', slug: 'acme', name: 'Acme Corporation', plan: 'free', noteLimit: 3, isActive: true },
+    tenantId: { _id: 'mock-tenant-acme', slug: 'acme', name: 'Acme Corporation', plan: 'free', noteLimit: 3, isActive: true, canCreateNotes: true, usage: { currentNoteCount: 0 } },
     role: 'member',
     fullName: 'Regular User',
     isActive: true,
@@ -43,7 +44,7 @@ const mockUsers = {
     _id: 'mock-admin-globex',
     email: 'admin@globex.test',
     password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
-    tenantId: { _id: 'mock-tenant-globex', slug: 'globex', name: 'Globex Corporation', plan: 'pro', noteLimit: -1, isActive: true },
+    tenantId: { _id: 'mock-tenant-globex', slug: 'globex', name: 'Globex Corporation', plan: 'pro', noteLimit: -1, isActive: true, canCreateNotes: true, usage: { currentNoteCount: 0 } },
     role: 'admin',
     fullName: 'Globex Admin',
     isActive: true,
@@ -60,7 +61,7 @@ const mockUsers = {
     _id: 'mock-user-globex',
     email: 'user@globex.test',
     password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
-    tenantId: { _id: 'mock-tenant-globex', slug: 'globex', name: 'Globex Corporation', plan: 'pro', noteLimit: -1, isActive: true },
+    tenantId: { _id: 'mock-tenant-globex', slug: 'globex', name: 'Globex Corporation', plan: 'pro', noteLimit: -1, isActive: true, canCreateNotes: true, usage: { currentNoteCount: 0 } },
     role: 'member',
     fullName: 'Globex Member',
     isActive: true,
@@ -105,7 +106,27 @@ export const login = async (req, res) => {
       user = await User.findOne({ 
         email: lowerEmail,
         isActive: true 
-      }).populate('tenantId', 'slug name plan isActive noteLimit usage subscription');
+      });
+      
+      if (user) {
+        // Manually fetch tenant data since tenantId is now a string
+        const tenant = await Tenant.findOne({ slug: user.tenantId });
+        if (tenant) {
+          // Create a user object compatible with mock users structure
+          user = {
+            ...user.toObject(),
+            tenantId: {
+              _id: user.tenantId, // Keep the string ID for Note model compatibility
+              slug: tenant.slug,
+              name: tenant.name,
+              plan: tenant.plan,
+              noteLimit: tenant.noteLimit,
+              isActive: tenant.isActive,
+              usage: tenant.usage
+            }
+          };
+        }
+      }
       
       if (!user) {
         return res.status(401).json({
@@ -162,6 +183,13 @@ export const login = async (req, res) => {
 
     const accessToken = generateToken(tokenPayload);
     const refreshToken = generateRefreshToken(tokenPayload);
+
+    // Set authentication cookies
+    setAuthCookies(res, {
+      tenantSlug: user.tenantId.slug,
+      email: user.email,
+      role: user.role
+    }, accessToken, refreshToken);
 
     // Return user data and tokens
     res.json({
@@ -338,8 +366,27 @@ export const getCurrentUser = async (req, res) => {
     const { userId, tenantId } = req.user;
 
     const user = await User.findById(userId)
-      .populate('tenantId', 'slug name plan isActive noteLimit usage subscription')
       .select('-password');
+      
+    if (user) {
+      // Manually fetch tenant data since tenantId is now a string
+      const tenant = await Tenant.findOne({ slug: user.tenantId });
+      if (tenant) {
+        // Create a user object compatible with mock users structure
+        user = {
+          ...user.toObject(),
+          tenantId: {
+            _id: user.tenantId, // Keep the string ID for Note model compatibility
+            slug: tenant.slug,
+            name: tenant.name,
+            plan: tenant.plan,
+            noteLimit: tenant.noteLimit,
+            isActive: tenant.isActive,
+            usage: tenant.usage
+          }
+        };
+      }
+    }
 
     if (!user) {
       return res.status(404).json({
@@ -393,8 +440,9 @@ export const getCurrentUser = async (req, res) => {
  */
 export const logout = async (req, res) => {
   try {
-    // In a production app, you might want to blacklist the token
-    // For now, we'll just return a success message
+    // Clear authentication cookies
+    clearAuthCookies(res);
+    
     res.json({
       message: 'Logout successful'
     });
