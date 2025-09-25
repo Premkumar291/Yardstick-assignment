@@ -80,6 +80,13 @@ export const AuthProvider = ({ children }) => {
   // Check authentication status on mount
   useEffect(() => {
     checkAuthStatus();
+    
+    // Set up periodic auth check every 5 minutes
+    const authInterval = setInterval(() => {
+      checkAuthStatus();
+    }, 5 * 60 * 1000);
+    
+    return () => clearInterval(authInterval);
   }, []);
 
   const checkAuthStatus = async () => {

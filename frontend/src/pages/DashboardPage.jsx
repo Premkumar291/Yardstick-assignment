@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotes } from '../contexts/NotesContext';
@@ -20,11 +20,15 @@ import SubscriptionBanner from '../components/SubscriptionBanner';
 const DashboardPage = () => {
   const { tenant, userFullName, isAdmin } = useAuth();
   const { notes, stats, fetchNotes, fetchStats, isLoading } = useNotes();
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
-    fetchNotes({ limit: 5 }); // Get recent notes
-    fetchStats();
-  }, [fetchNotes, fetchStats]);
+    if (!dataLoaded) {
+      fetchNotes({ limit: 5 }); // Get recent notes
+      fetchStats();
+      setDataLoaded(true);
+    }
+  }, [fetchNotes, fetchStats, dataLoaded]);
 
   const recentNotes = notes.slice(0, 5);
 

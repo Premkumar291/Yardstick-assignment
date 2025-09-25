@@ -1,44 +1,141 @@
 import bcrypt from 'bcryptjs';
 import { User, Tenant } from '../models/index.js';
 import { generateToken, generateRefreshToken } from '../utils/jwt.js';
+import mongoose from 'mongoose';
+
+// Mock users for development/testing - always available
+const mockUsers = {
+  'admin@acme.test': {
+    _id: 'mock-admin-acme',
+    email: 'admin@acme.test',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    tenantId: { _id: 'mock-tenant-acme', slug: 'acme', name: 'Acme Corporation', plan: 'free', noteLimit: 3, isActive: true },
+    role: 'admin',
+    fullName: 'Admin User',
+    isActive: true,
+    permissions: {
+      canCreateNotes: true,
+      canEditNotes: true,
+      canDeleteNotes: true,
+      canShareNotes: true,
+      canManageUsers: true,
+      canManageTenant: true
+    }
+  },
+  'user@acme.test': {
+    _id: 'mock-user-acme',
+    email: 'user@acme.test',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    tenantId: { _id: 'mock-tenant-acme', slug: 'acme', name: 'Acme Corporation', plan: 'free', noteLimit: 3, isActive: true },
+    role: 'member',
+    fullName: 'Regular User',
+    isActive: true,
+    permissions: {
+      canCreateNotes: true,
+      canEditNotes: true,
+      canDeleteNotes: true,
+      canShareNotes: true,
+      canManageUsers: false,
+      canManageTenant: false
+    }
+  },
+  'admin@globex.test': {
+    _id: 'mock-admin-globex',
+    email: 'admin@globex.test',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    tenantId: { _id: 'mock-tenant-globex', slug: 'globex', name: 'Globex Corporation', plan: 'pro', noteLimit: -1, isActive: true },
+    role: 'admin',
+    fullName: 'Globex Admin',
+    isActive: true,
+    permissions: {
+      canCreateNotes: true,
+      canEditNotes: true,
+      canDeleteNotes: true,
+      canShareNotes: true,
+      canManageUsers: true,
+      canManageTenant: true
+    }
+  },
+  'user@globex.test': {
+    _id: 'mock-user-globex',
+    email: 'user@globex.test',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    tenantId: { _id: 'mock-tenant-globex', slug: 'globex', name: 'Globex Corporation', plan: 'pro', noteLimit: -1, isActive: true },
+    role: 'member',
+    fullName: 'Globex Member',
+    isActive: true,
+    permissions: {
+      canCreateNotes: true,
+      canEditNotes: true,
+      canDeleteNotes: true,
+      canShareNotes: true,
+      canManageUsers: false,
+      canManageTenant: false
+    }
+  }
+};
 
 /**
- * User login
+ * User login - supports both mock accounts and database authentication
  * POST /api/auth/login
  */
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Find user by email (we'll need to check across tenants for login)
-    const user = await User.findOne({ 
-      email: email.toLowerCase(),
-      isActive: true 
-    }).populate('tenantId', 'slug name plan isActive noteLimit usage subscription');
-
-    if (!user) {
-      return res.status(401).json({
-        error: 'Invalid email or password',
-        code: 'INVALID_CREDENTIALS'
-      });
-    }
-
-    // Check if user account is locked
-    if (user.isLocked) {
-      return res.status(423).json({
-        error: 'Account is temporarily locked due to too many failed login attempts',
-        code: 'ACCOUNT_LOCKED',
-        lockUntil: user.security.lockUntil
-      });
-    }
-
-    // Verify password
-    const isPasswordValid = await user.comparePassword(password);
-
-    if (!isPasswordValid) {
-      // Increment login attempts
-      await user.incLoginAttempts();
+    const lowerEmail = email.toLowerCase();
+    
+    let user;
+    let isMockUser = false;
+    
+    // First check mock users (always available)
+    if (mockUsers[lowerEmail]) {
+      const isPasswordValid = await bcrypt.compare(password, mockUsers[lowerEmail].password);
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          error: 'Invalid email or password',
+          code: 'INVALID_CREDENTIALS'
+        });
+      }
       
+      user = mockUsers[lowerEmail];
+      isMockUser = true;
+    } 
+    // Then check database if connected and no mock user found
+    else if (mongoose.connection.readyState === 1) {
+      user = await User.findOne({ 
+        email: lowerEmail,
+        isActive: true 
+      }).populate('tenantId', 'slug name plan isActive noteLimit usage subscription');
+      
+      if (!user) {
+        return res.status(401).json({
+          error: 'Invalid email or password',
+          code: 'INVALID_CREDENTIALS'
+        });
+      }
+      
+      // Check if user account is locked (only for database users)
+      if (user.isLocked) {
+        return res.status(423).json({
+          error: 'Account is temporarily locked due to too many failed login attempts',
+          code: 'ACCOUNT_LOCKED',
+          lockUntil: user.security.lockUntil
+        });
+      }
+      
+      // Verify password for database users
+      const isPasswordValid = await user.comparePassword(password);
+      if (!isPasswordValid) {
+        await user.incLoginAttempts();
+        return res.status(401).json({
+          error: 'Invalid email or password',
+          code: 'INVALID_CREDENTIALS'
+        });
+      }
+      
+      // Reset login attempts on successful login
+      await user.resetLoginAttempts();
+    } else {
       return res.status(401).json({
         error: 'Invalid email or password',
         code: 'INVALID_CREDENTIALS'
@@ -52,9 +149,6 @@ export const login = async (req, res) => {
         code: 'TENANT_INACTIVE'
       });
     }
-
-    // Reset login attempts on successful login
-    await user.resetLoginAttempts();
 
     // Generate tokens
     const tokenPayload = {
@@ -77,9 +171,9 @@ export const login = async (req, res) => {
         email: user.email,
         role: user.role,
         fullName: user.fullName,
-        profile: user.profile,
+        profile: user.profile || {},
         permissions: user.permissions,
-        isAdmin: user.isAdmin
+        isAdmin: user.role === 'admin'
       },
       tenant: {
         id: user.tenantId._id,
@@ -87,10 +181,10 @@ export const login = async (req, res) => {
         name: user.tenantId.name,
         plan: user.tenantId.plan,
         noteLimit: user.tenantId.noteLimit,
-        hasUnlimitedNotes: user.tenantId.hasUnlimitedNotes,
-        remainingNotes: user.tenantId.remainingNotes,
-        canCreateNotes: user.tenantId.canCreateNotes,
-        usage: user.tenantId.usage
+        hasUnlimitedNotes: user.tenantId.noteLimit === -1,
+        remainingNotes: user.tenantId.noteLimit === -1 ? 'Unlimited' : user.tenantId.noteLimit,
+        canCreateNotes: true,
+        usage: user.tenantId.usage || { notes: 0 }
       },
       tokens: {
         accessToken,
@@ -241,9 +335,18 @@ export const register = async (req, res) => {
  */
 export const getCurrentUser = async (req, res) => {
   try {
-    // User and tenant are already loaded by auth middleware
-    const user = req.user;
-    const tenant = req.tenant;
+    const { userId, tenantId } = req.user;
+
+    const user = await User.findById(userId)
+      .populate('tenantId', 'slug name plan isActive noteLimit usage subscription')
+      .select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
 
     res.json({
       user: {
@@ -254,33 +357,32 @@ export const getCurrentUser = async (req, res) => {
         profile: user.profile,
         permissions: user.permissions,
         isAdmin: user.isAdmin,
-        createdAt: user.createdAt,
-        lastLogin: user.security.lastLogin
+        preferences: user.preferences,
+        security: {
+          lastLogin: user.security.lastLogin,
+          emailVerified: user.security.emailVerified,
+          twoFactorEnabled: user.security.twoFactorEnabled
+        }
       },
       tenant: {
-        id: tenant._id,
-        slug: tenant.slug,
-        name: tenant.name,
-        plan: tenant.plan,
-        noteLimit: tenant.noteLimit,
-        hasUnlimitedNotes: tenant.hasUnlimitedNotes,
-        remainingNotes: tenant.remainingNotes,
-        canCreateNotes: tenant.canCreateNotes,
-        usage: tenant.usage,
-        settings: tenant.settings,
-        subscription: {
-          status: tenant.subscription.status,
-          startDate: tenant.subscription.startDate,
-          endDate: tenant.subscription.endDate
-        }
+        id: user.tenantId._id,
+        slug: user.tenantId.slug,
+        name: user.tenantId.name,
+        plan: user.tenantId.plan,
+        noteLimit: user.tenantId.noteLimit,
+        hasUnlimitedNotes: user.tenantId.hasUnlimitedNotes,
+        remainingNotes: user.tenantId.remainingNotes,
+        canCreateNotes: user.tenantId.canCreateNotes,
+        usage: user.tenantId.usage,
+        subscription: user.tenantId.subscription
       }
     });
 
   } catch (error) {
     console.error('Get current user error:', error);
     res.status(500).json({
-      error: 'User service error',
-      code: 'USER_SERVICE_ERROR'
+      error: 'Failed to get user information',
+      code: 'GET_USER_ERROR'
     });
   }
 };
@@ -291,18 +393,16 @@ export const getCurrentUser = async (req, res) => {
  */
 export const logout = async (req, res) => {
   try {
-    // In a more advanced implementation, you would blacklist the token
+    // In a production app, you might want to blacklist the token
     // For now, we'll just return a success message
-    
     res.json({
       message: 'Logout successful'
     });
-
   } catch (error) {
     console.error('Logout error:', error);
     res.status(500).json({
-      error: 'Logout service error',
-      code: 'LOGOUT_SERVICE_ERROR'
+      error: 'Logout failed',
+      code: 'LOGOUT_ERROR'
     });
   }
 };
@@ -313,43 +413,26 @@ export const logout = async (req, res) => {
  */
 export const refreshToken = async (req, res) => {
   try {
-    const { refreshToken: token } = req.body;
+    const { refreshToken } = req.body;
 
-    if (!token) {
+    if (!refreshToken) {
       return res.status(401).json({
-        error: 'Refresh token required',
+        error: 'Refresh token is required',
         code: 'REFRESH_TOKEN_REQUIRED'
       });
     }
 
     // Verify refresh token
-    let decoded;
-    try {
-      decoded = verifyToken(token);
-    } catch (error) {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    
+    // Find user
+    const user = await User.findById(decoded.userId)
+      .populate('tenantId', 'slug name plan isActive noteLimit usage subscription');
+
+    if (!user || !user.isActive) {
       return res.status(401).json({
         error: 'Invalid refresh token',
         code: 'INVALID_REFRESH_TOKEN'
-      });
-    }
-
-    // Ensure this is a refresh token
-    if (decoded.tokenType !== 'refresh') {
-      return res.status(401).json({
-        error: 'Invalid token type',
-        code: 'INVALID_TOKEN_TYPE'
-      });
-    }
-
-    // Load user and tenant
-    const user = await User.findById(decoded.userId)
-      .populate('tenantId', 'slug name plan isActive noteLimit usage subscription')
-      .select('-password');
-
-    if (!user || !user.isActive || !user.tenantId || !user.tenantId.isActive) {
-      return res.status(401).json({
-        error: 'Invalid user or tenant',
-        code: 'INVALID_USER_TENANT'
       });
     }
 
@@ -372,9 +455,9 @@ export const refreshToken = async (req, res) => {
 
   } catch (error) {
     console.error('Refresh token error:', error);
-    res.status(500).json({
-      error: 'Token refresh service error',
-      code: 'TOKEN_REFRESH_SERVICE_ERROR'
+    res.status(401).json({
+      error: 'Invalid refresh token',
+      code: 'INVALID_REFRESH_TOKEN'
     });
   }
 };

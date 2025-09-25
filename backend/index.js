@@ -6,11 +6,95 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 
-// Load environment variables
 dotenv.config();
 
+// Mock authentication for development (when no database is available)
+const mockUsers = [
+  {
+    email: 'admin@acme.test',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    tenantId: 'acme',
+    role: 'admin',
+    fullName: 'Admin User',
+    isActive: true,
+    permissions: {
+      canCreateNotes: true,
+      canEditNotes: true,
+      canDeleteNotes: true,
+      canShareNotes: true,
+      canManageUsers: true,
+      canManageTenant: true
+    }
+  },
+  {
+    email: 'user@acme.test',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    tenantId: 'acme',
+    role: 'member',
+    fullName: 'Regular User',
+    isActive: true,
+    permissions: {
+      canCreateNotes: true,
+      canEditNotes: true,
+      canDeleteNotes: true,
+      canShareNotes: true,
+      canManageUsers: false,
+      canManageTenant: false
+    }
+  },
+  {
+    email: 'admin@globex.test',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    tenantId: 'globex',
+    role: 'admin',
+    fullName: 'Globex Admin',
+    isActive: true,
+    permissions: {
+      canCreateNotes: true,
+      canEditNotes: true,
+      canDeleteNotes: true,
+      canShareNotes: true,
+      canManageUsers: true,
+      canManageTenant: true
+    }
+  },
+  {
+    email: 'user@globex.test',
+    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+    tenantId: 'globex',
+    role: 'member',
+    fullName: 'Globex Member',
+    isActive: true,
+    permissions: {
+      canCreateNotes: true,
+      canEditNotes: true,
+      canDeleteNotes: true,
+      canShareNotes: true,
+      canManageUsers: false,
+      canManageTenant: false
+    }
+  }
+];
+
+const mockTenants = [
+  {
+    slug: 'acme',
+    name: 'Acme Corporation',
+    plan: 'free',
+    noteLimit: 3,
+    isActive: true
+  },
+  {
+    slug: 'globex',
+    name: 'Globex Corporation',
+    plan: 'pro',
+    noteLimit: -1,
+    isActive: true
+  }
+];
+
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT  ;
 
 // Security middleware
 app.use(helmet({
@@ -164,18 +248,16 @@ const connectDB = async () => {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/notes-saas';
     
     const connectionOptions = {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
       maxPoolSize: process.env.NODE_ENV === 'production' ? 5 : 10, // Smaller pool for serverless
-      serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
+      serverSelectionTimeoutMS: 10000, // Increase timeout for Atlas
       socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
-      family: 4, // Use IPv4, skip trying IPv6
-      bufferCommands: false, // Disable mongoose buffering
-      bufferMaxEntries: 0, // Disable mongoose buffering
-      // Optimize for serverless cold starts
       connectTimeoutMS: 10000,
-      heartbeatFrequencyMS: 30000,
+      retryWrites: true,
+      w: 'majority'
     };
+
+    // Set mongoose-specific options separately (only valid options)
+    mongoose.set('bufferCommands', false);
 
     // Add authentication if provided
     if (process.env.MONGODB_USER && process.env.MONGODB_PASSWORD) {
@@ -206,23 +288,36 @@ const connectDB = async () => {
     return conn;
   } catch (error) {
     console.error('Database connection error:', error);
+    console.error('Make sure MongoDB is running or use MongoDB Atlas for cloud database');
+    console.error('For local MongoDB: brew install mongodb-community (Mac) or download from mongodb.com');
     cachedConnection = null;
     
     // In serverless, don't exit process on connection failure
     if (process.env.NODE_ENV !== 'production') {
+      console.log('💡 Quick fix options:');
+      console.log('1. Install MongoDB locally: https://www.mongodb.com/try/download/community');
+      console.log('2. Use MongoDB Atlas (free): https://cloud.mongodb.com');
+      console.log('3. Use Docker: docker run -d -p 27017:27017 mongo:latest');
       process.exit(1);
     }
     throw error;
   }
 };
 
-// Connect to database
-connectDB();
+// Connect to database (skip in development if no DB available)
+if (process.env.NODE_ENV !== 'development' || process.env.MONGODB_URI) {
+  connectDB();
+} else {
+  console.log('⚠️  Running in development mode without database connection');
+  console.log('📝 Note: API endpoints requiring database will return 503 errors');
+}
 
 // Middleware to ensure database connection for each request (serverless optimization)
 app.use('/api', async (req, res, next) => {
   try {
-    await connectDB();
+    if (process.env.NODE_ENV !== 'development' || process.env.MONGODB_URI) {
+      await connectDB();
+    }
     next();
   } catch (error) {
     console.error('Database connection failed:', error);

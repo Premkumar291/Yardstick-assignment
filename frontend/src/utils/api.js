@@ -46,11 +46,6 @@ api.interceptors.response.use(
       Cookies.remove('tenantSlug');
       localStorage.removeItem('user');
       localStorage.removeItem('tenantSlug');
-      
-      // Redirect to login if not already there
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
     }
     
     return Promise.reject(error);
